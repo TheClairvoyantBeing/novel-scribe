@@ -1,0 +1,13 @@
+ebooklib
+pymupdf
+sentence-transformers
+reportlab
+typer
+rich
+python-dotenv
+openai
+gliner
+beautifulsoup4
+lxml
+scikit-learn
+numpy
