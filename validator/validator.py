@@ -8,14 +8,25 @@ class NovelValidator:
         self.console = console
         # Detect GPU availability
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        # Load a small GLiNER model for entity detection
-        self.model = GLiNER.from_pretrained("urchade/gliner_base_news-v2.1").to(device)
+        # Use a more stable and public GLiNER model to avoid 401 errors
+        model_id = "urchade/gliner_medium-v2.1"
+        try:
+            self.model = GLiNER.from_pretrained(model_id).to(device)
+        except Exception as e:
+            self.console.print(f"[red]Error loading GLiNER model '{model_id}': {e}[/red]")
+            self.console.print("[yellow]Falling back to standard entity lists if validation fails.[/yellow]")
+            self.model = None
+            
         self.labels = ["person", "location", "organization"]
 
     def validate_chapters_batch(self, chapter_texts, chapter_nums):
         """
         Extracts entities from a batch of chapters in one go.
         """
+        if not self.model:
+            # Fallback: No entity extraction if model didn't load
+            return [[] for _ in chapter_texts]
+
         # GLiNER can handle batching internally
         all_entities = self.model.predict_entities_batch(chapter_texts, self.labels)
         
