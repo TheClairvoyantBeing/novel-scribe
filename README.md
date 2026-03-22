@@ -5,66 +5,69 @@
 ## 🚀 Features
 
 - **Multi-Format Ingestion**: Supports extraction of chapters from both `.epub` and `.pdf` files.
+- **Massively Parallel Processing**: stage-based multithreaded rewriting for up to 10x faster completion.
+- **Hybrid RAG (Vector + Keyword)**: Combines ChromaDB vector search with exact keyword matching for 100% terminology consistency.
 - **AI-Generated Novel Bible**: Automatically identifies and clusters characters, locations, and organizations using NVIDIA NIM models.
-- **Context-Aware Rewriting**: Standardizes terminology across chapters using high-performance LLMs (Llama 3.3 70B & DeepSeek V3).
-- **Automated Validation**: Uses Named Entity Recognition (GLiNER) to cross-reference rewritten text with the Novel Bible to find inconsistencies.
-- **Consolidated Output**: Merges processed chapters into a clean, standardized `.txt` and `.pdf` file.
+- **GPU-Accelerated Validation**: Uses Named Entity Recognition (GLiNER) with CUDA batch-processing to find inconsistencies.
+- **Anonymization Layer**: Automatically neutralizes real-world geographic and political references into fictional counterparts.
+
+---
 
 ## 🛠️ Installation
 
-1. Clone the repository:
+1. **Clone the repository**:
    ```bash
    git clone https://github.com/TheClairvoyantBeing/novel-scribe.git
    cd novel-scribe
    ```
 
-2. Install dependencies:
+2. **Quick Start (Windows)**:
+   Run the automated setup script to create a virtual environment and install dependencies:
    ```bash
-   pip install -r requirements.txt
+   ./setup.bat
    ```
 
-3. Configure environment variables:
-   Copy `.env.example` to `.env` and add your NVIDIA API Key.
+3. **GPU Acceleration (Recommended)**:
+   To leverage your NVIDIA GPU for entity recognition and embeddings:
    ```bash
-   cp .env.example .env
+   pip install torch --index-url https://download.pytorch.org/whl/cu126 --force-reinstall
    ```
+   *(Note: Use `cu126` for Python 3.14 on Windows.)*
+
+---
 
 ## 📖 Usage
 
-The tool operates in stages to ensure maximum accuracy:
-
-### 1. Start Processing
-Extract chapters and generate the initial Novel Bible:
+### **1. Configure Environment**
 ```bash
-python main.py process --input path/to/your/novel.epub
+python main.py env
 ```
 
-### 2. Confirm the Bible
-Review the generated `output/novel_bible.json`. If it looks correct, confirm it to proceed:
+### **2. Start Processing**
+Extract chapters and generate the Novel Bible:
+```bash
+python main.py process --input path/to/your/novel.epub --workers 10 --neutralize
+```
+**Flags:**
+- `--workers` / `-w`: Number of parallel LLM tasks (Default: 5).
+- `--neutralize`: Enable fictionalization of real-world names.
+
+### **3. Confirm & Rewrite**
+Review `output/novel_bible.json`, then:
 ```bash
 python main.py confirm-bible
+python main.py process --input path/to/your/novel.epub --workers 10
 ```
 
-### 3. Complete the Rewrite
-Run the process command again to perform the rewrite and validation:
-```bash
-python main.py process --input path/to/your/novel.epub
-```
+---
 
-### 4. Check Status
-You can check the progress of your project at any time:
-```bash
-python main.py status
-```
+## 🛠️ Tech Stack
+- **Models**: NVIDIA NIM (Meta Llama 3.3 70B, DeepSeek V3).
+- **Database**: ChromaDB (Vector Store).
+- **NER**: GLiNER (Batch-optimized for GPU).
+- **Parsing**: PyMuPDF, EbookLib.
 
-## 🤖 Technology Stack
-
-- **Extraction**: `EbookLib`, `PyMuPDF`, `BeautifulSoup`
-- **AI Intelligence**: `NVIDIA NIM` (Llama 3.3 70B, DeepSeek V3)
-- **Validation**: `GLiNER` (Named Entity Recognition)
-- **CLI Interface**: `Typer`, `Rich`
-- **Output**: `ReportLab` (PDF generation)
+---
 
 ## 📄 License
-
-Individual project. All rights reserved.
+MIT License. Created for the web novel translation community.

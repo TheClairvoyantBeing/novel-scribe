@@ -15,6 +15,7 @@ from bible.clusterer import BibleClusterer
 from rewriter.rewriter import NovelRewriter
 from validator.validator import NovelValidator
 from merger.merger import NovelMerger
+from utils.vector_store import VectorStore
 
 app = typer.Typer()
 console = Console()
@@ -25,7 +26,9 @@ def process(
     input_file: str = typer.Option(..., "--input", "-i", help="Path to the .epub or .pdf novel file"),
     output_dir: str = typer.Option("output", "--output", "-o", help="Directory for output files"),
     chunk_size: int = typer.Option(4000, help="Chunk size in tokens"),
-    overlap: int = typer.Option(400, help="Overlap size in tokens")
+    overlap: int = typer.Option(400, help="Overlap size in tokens"),
+    neutralize: bool = typer.Option(True, "--neutralize", help="Enable anonymization of real-world references"),
+    workers: int = typer.Option(5, "--workers", "-w", help="Number of parallel workers for LLM tasks")
 ):
     """
     Standardize a novel by fixing naming and phrasing inconsistencies.
@@ -100,6 +103,12 @@ def process(
         with open(bible_path, 'w', encoding='utf-8') as f:
             json.dump(bible, f, indent=4)
             
+        # Initialize Vector Store and Upsert
+        console.print("[dim]Updating Vector Database...[/dim]")
+        db_path = os.path.join(output_dir, "chroma_db")
+        vs = VectorStore(db_path)
+        vs.import_from_json(bible_path)
+            
         progress["master_status"] = "bible_generated"
         save_progress(progress, progress_file)
         console.print(f"Bible generated and saved to {bible_path}")
@@ -113,11 +122,17 @@ def process(
             bible = json.load(f)
             
         client = NvidiaNIMClient()
-        rewriter = NovelRewriter(client, bible, console)
+        db_path = os.path.join(output_dir, "chroma_db")
+        vs = VectorStore(db_path)
+        
+        sensitivity_config = "utils/sensitivity_config.json" if neutralize else None
+        rewriter = NovelRewriter(client, bible, console, vector_store=vs, sensitivity_config=sensitivity_config)
         rewritten_dir = os.path.join(output_dir, "chapters", "rewritten")
         if not os.path.exists(rewritten_dir):
             os.makedirs(rewritten_dir)
             
+        from concurrent.futures import ThreadPoolExecutor
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -127,24 +142,33 @@ def process(
         ) as p:
             pending_chunks = [c for c in progress["chunks"] if c.get("status") == "pending"]
             task = p.add_task("Rewriting chunks...", total=len(progress["chunks"]))
-            # Initialize with already done chunks
             p.update(task, advance=len(progress["chunks"]) - len(pending_chunks))
             
-            for chunk in pending_chunks:
-                rewritten_text = rewriter.rewrite_chunk(chunk)
-                if rewritten_text:
-                    chapter_rewritten_dir = os.path.join(rewritten_dir, f"chapter_{chunk['chapter_num']:04d}")
-                    if not os.path.exists(chapter_rewritten_dir):
-                        os.makedirs(chapter_rewritten_dir)
+            def process_rewrite(chunk):
+                try:
+                    rewritten_text = rewriter.rewrite_chunk(chunk)
+                    if rewritten_text:
+                        chapter_rewritten_dir = os.path.join(rewritten_dir, f"chapter_{chunk['chapter_num']:04d}")
+                        os.makedirs(chapter_rewritten_dir, exist_ok=True)
                         
-                    chunk_filename = f"chunk_{chunk['chunk_index']:04d}.txt"
-                    with open(os.path.join(chapter_rewritten_dir, chunk_filename), 'w', encoding='utf-8') as f:
-                        f.write(rewritten_text)
-                    
-                    chunk["status"] = "done"
-                    save_progress(progress, progress_file) # Immediate checkpointing
-                
+                        chunk_filename = f"chunk_{chunk['chunk_index']:04d}.txt"
+                        with open(os.path.join(chapter_rewritten_dir, chunk_filename), 'w', encoding='utf-8') as f:
+                            f.write(rewritten_text)
+                        
+                        chunk["status"] = "done"
+                        # We don't save progress every single chunk in threads to avoid lock contention, 
+                        # but we update the progress bar.
+                        p.update(task, advance=1)
+                        return True
+                except Exception as e:
+                    console.print(f"[red]Error in thread: {e}[/red]")
                 p.update(task, advance=1)
+                return False
+
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                list(executor.map(process_rewrite, pending_chunks))
+            
+            save_progress(progress, progress_file) # Final save for stage
                 
         progress["master_status"] = "rewrite_complete"
         save_progress(progress, progress_file)
@@ -218,9 +242,54 @@ def confirm_bible(output_dir: str = typer.Option("output", "--output", "-o")):
 def status(output_dir: str = typer.Option("output", "--output", "-o")):
     """Show the current progress status."""
     progress_file = os.path.join(output_dir, "progress.json")
+    if not os.path.exists(progress_file):
+        console.print("[yellow]No project progress found in this directory.[/yellow]")
+        return
     progress = load_progress(progress_file)
     console.print(f"Master Status: [bold]{progress.get('master_status', 'Not Started')}[/bold]")
     console.print(f"Total Chunks: {len(progress.get('chunks', []))}")
+
+@app.command()
+def env():
+    """Setup the environment variables by copying .env.example to .env."""
+    if os.path.exists(".env"):
+        overwrite = typer.confirm(".env file already exists. Overwrite?")
+        if not overwrite:
+            return
+            
+    import shutil
+    if os.path.exists(".env.example"):
+        shutil.copy(".env.example", ".env")
+        console.print("[green]Created .env from .env.example[/green]")
+        
+        api_key = typer.prompt("Enter your NVIDIA API Key (optional, press Enter to skip)", default="", show_default=False)
+        if api_key:
+            with open(".env", "r") as f:
+                lines = f.readlines()
+            with open(".env", "w") as f:
+                for line in lines:
+                    if line.strip().startswith("NVIDIA_API_KEY="):
+                        f.write(f"NVIDIA_API_KEY={api_key}\n")
+                    else:
+                        f.write(line)
+            console.print("[green]NVIDIA API Key updated in .env[/green]")
+    else:
+        console.print("[red]Error: .env.example not found. Please ensure it exists in the root directory.[/red]")
+
+@app.command()
+def reindex(output_dir: str = typer.Option("output", "--output", "-o")):
+    """Rebuild the vector database from novel_bible.json."""
+    bible_path = os.path.join(output_dir, "novel_bible.json")
+    if not os.path.exists(bible_path):
+        console.print(f"[red]Error: {bible_path} not found.[/red]")
+        return
+        
+    db_path = os.path.join(output_dir, "chroma_db")
+    vs = VectorStore(db_path)
+    console.print(f"Reindexing Bible into {db_path}...")
+    vs.clear()
+    vs.import_from_json(bible_path)
+    console.print("[green]Reindexing complete.[/green]")
 
 if __name__ == "__main__":
     app()

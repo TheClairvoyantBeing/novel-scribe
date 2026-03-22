@@ -1,0 +1,19 @@
+{
+    "neutralize_real_world_references": true,
+    "mappings": {
+        "China": "Celestial Empire",
+        "Beijing": "The Jade City",
+        "USA": "Western Federations",
+        "America": "Western Continents",
+        "Japan": "Eastern Island Slabs",
+        "Korea": "Azure Shorelands",
+        "Russia": "Northern Tundra Realms",
+        "Europe": "The Old Kingdoms"
+    },
+    "blocked_personalities": [
+        "Napoleon",
+        "Hitler",
+        "Stalin"
+    ],
+    "replacement_template": "the [ENTITY_TYPE] of the [CONTEXTUAL_REGION]"
+}
