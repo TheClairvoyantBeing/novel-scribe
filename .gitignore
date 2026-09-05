@@ -34,6 +34,11 @@ venv.bak
 # Project Specific
 chapters/
 bibles/
+output/chroma_db/
+output/test_chroma/
+output/chapters/
+*.sqlite3
+*.bin
 progress.json
 validation_report.txt
 summary.json
