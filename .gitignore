@@ -56,3 +56,13 @@ Source
 # OS
 .DS_Store
 Thumbs.db
+
+# Standard repository hygiene
+node_modules/
+out/
+target/
+coverage/
+htmlcov/
+.venv/
+.env.*
+reviews.md
